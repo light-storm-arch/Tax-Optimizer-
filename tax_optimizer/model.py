@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
-# 2026 ordinary income brackets (assumed) and standard deduction baselines.
 FEDERAL_BRACKETS_2026 = {
     "joint": [
         (0, 0.10), (24000, 0.12), (96000, 0.22), (205000, 0.24), (390000, 0.32), (490000, 0.35), (735000, 0.37)
@@ -53,6 +52,7 @@ class ProjectionConfig:
     conversion_max_age: int = 75
     annual_conversion_cap: float = 150000.0
     conversion_step: float = 5000.0
+    conversion_bracket_target_rate: Optional[float] = None
 
 
 def inflate(value: float, rate: float, year_offset: int) -> float:
@@ -76,6 +76,15 @@ def marginal_rate(taxable_income: float, brackets: List[Tuple[float, float]]) ->
         else:
             break
     return rate
+
+
+def bracket_top_for_rate(brackets: List[Tuple[float, float]], target_rate: float) -> float:
+    for i, (_, rate) in enumerate(brackets):
+        if rate == target_rate:
+            if i + 1 < len(brackets):
+                return brackets[i + 1][0]
+            return float("inf")
+    return float("inf")
 
 
 def taxable_social_security(total_benefit: float, provisional_income: float, filing_status: str) -> float:
@@ -138,17 +147,31 @@ def _simulate(h: HouseholdConfig, cfg: ProjectionConfig, schedule: Dict[int, flo
         oldest = max(age1 if alive1 else 0, age2 if alive2 else 0)
         rmd = trad / get_divisor(oldest) if oldest >= cfg.rmd_start_age and trad > 0 else 0.0
 
+        brackets = [(inflate(start, cfg.bracket_inflation, i), rate) for start, rate in FEDERAL_BRACKETS_2026[filing]]
+        std_ded = inflate(STANDARD_DEDUCTION_2026[filing], cfg.bracket_inflation, i)
+
         in_window = cfg.conversion_min_age <= oldest <= cfg.conversion_max_age
-        conversion = min(schedule.get(year, 0.0), cfg.annual_conversion_cap, max(0.0, trad - rmd)) if in_window else 0.0
+        conversion_limit = cfg.annual_conversion_cap
+
+        provisional_base = pension + other + rmd + 0.5 * total_ss
+        taxable_ss_base = taxable_social_security(total_ss, provisional_base, filing)
+        taxable_income_base = max(0.0, pension + other + rmd + taxable_ss_base - std_ded)
+
+        if cfg.conversion_bracket_target_rate is not None:
+            bracket_top = bracket_top_for_rate(brackets, cfg.conversion_bracket_target_rate)
+            if bracket_top != float("inf"):
+                conversion_limit = min(conversion_limit, max(0.0, bracket_top - taxable_income_base))
+
+        conversion = min(schedule.get(year, 0.0), conversion_limit, max(0.0, trad - rmd)) if in_window else 0.0
 
         provisional = pension + other + rmd + conversion + 0.5 * total_ss
         taxable_ss = taxable_social_security(total_ss, provisional, filing)
 
         gross_ordinary = pension + other + rmd + conversion + taxable_ss
-        std_ded = inflate(STANDARD_DEDUCTION_2026[filing], cfg.bracket_inflation, i)
         taxable_income = max(0.0, gross_ordinary - std_ded)
-        brackets = [(inflate(start, cfg.bracket_inflation, i), rate) for start, rate in FEDERAL_BRACKETS_2026[filing]]
         income_tax = tax_from_brackets(taxable_income, brackets)
+        current_marginal_rate = marginal_rate(taxable_income, brackets)
+
         magi = pension + other + rmd + conversion + total_ss
         surcharge = irmaa_surcharge(magi, filing, covered)
         total_tax = income_tax + surcharge
@@ -175,12 +198,23 @@ def _simulate(h: HouseholdConfig, cfg: ProjectionConfig, schedule: Dict[int, flo
             "age_2": age2,
             "filing_status": filing,
             "social_security": total_ss,
+            "pension_income": pension,
+            "other_income": other,
+            "provisional_income": provisional,
+            "taxable_social_security": taxable_ss,
+            "standard_deduction": std_ded,
+            "gross_ordinary_income": gross_ordinary,
             "rmd": rmd,
             "roth_conversion": conversion,
             "taxable_income": taxable_income,
+            "marginal_tax_rate": current_marginal_rate,
             "federal_tax": income_tax,
             "irmaa_proxy": surcharge,
             "total_tax": total_tax,
+            "spending_need": spending,
+            "taxable_withdrawal": wd_taxable,
+            "trad_withdrawal": wd_trad,
+            "roth_withdrawal": wd_roth,
             "trad_end": trad,
             "roth_end": roth,
             "taxable_end": taxable,

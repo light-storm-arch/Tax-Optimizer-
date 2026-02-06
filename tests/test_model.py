@@ -31,3 +31,23 @@ def test_weights_change_objective_score():
     tax_result = project_plan(hh, cfg_tax, schedule)
 
     assert legacy_result["objective_score"] != tax_result["objective_score"]
+
+
+def test_projection_includes_marginal_rate_column():
+    hh = HouseholdConfig()
+    cfg = ProjectionConfig(horizon_years=5)
+    result = optimize_plan(hh, cfg, iterations=1)
+    assert "marginal_tax_rate" in result["projection"][0]
+
+
+def test_bracket_target_limits_conversions():
+    hh = HouseholdConfig(other_ordinary_income=200000)
+    cfg = ProjectionConfig(
+        horizon_years=1,
+        conversion_bracket_target_rate=0.22,
+        annual_conversion_cap=300000,
+        conversion_step=50000,
+    )
+    result = optimize_plan(hh, cfg, iterations=1)
+    first = result["projection"][0]
+    assert first["marginal_tax_rate"] <= 0.24
