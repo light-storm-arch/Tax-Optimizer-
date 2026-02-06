@@ -15,22 +15,27 @@ Internal advisor-focused deterministic retirement tax planning tool for Roth con
   - optimization step size.
 - Uses 2026 bracket assumptions and inflates brackets annually (default 2.5%, user-adjustable).
 - Advanced planning inputs include Social Security timing, spouse longevity assumptions, return/inflation assumptions, and spending requirement.
-- Advisor web interface with:
+- Advisor Streamlit interface with:
   - recommendation and rationale,
   - key metrics,
-  - long year-by-year output table.
+  - scenario analysis,
+  - long year-by-year output table,
+  - charts for taxes, balances, and conversions.
 
 ## Disclaimer
 
 This is an educational planning tool based on assumptions and simplified tax mechanics. Outcomes may not reflect future law changes or real-world performance. It is not tax, legal, or investment advice.
 
-## Run
+## Run locally (Streamlit)
 
 ```bash
-python app.py
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
 ```
 
-Then open `http://localhost:8000`.
+Then open the local URL shown by Streamlit (usually `http://localhost:8501`).
 
 ## Test
 
